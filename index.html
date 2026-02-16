@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a1a">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDRRMO Calendar (Cloud)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        :root {
+            /* PDF Color Palette */
+            --bg-body: #1a1a1a;
+            --bg-sidebar: #0f0f0f;
+            --bg-cell: #252525;
+            
+            --neon-green: #cfff5e;
+            --neon-blue: #54b7ff;
+            --neon-red: #ff5e5e;
+            --neon-orange: #ffa500; 
+            
+            --text-white: #ffffff;
+            --text-gray: #888888;
+            
+            --radius-main: 15px;
+            --radius-pill: 50px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+
+        body {
+            /* Gradient Background */
+            background: linear-gradient(135deg, #2b2b2b 0%, #101010 100%);
+            color: var(--text-white);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- LOADING OVERLAY --- */
+        #loadingOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 2000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid #333;
+            border-top: 5px solid var(--neon-green); border-radius: 50%;
+            animation: spin 1s linear infinite; mb-3
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+
+        /* --- SIDEBAR DESIGN  --- */
+        .sidebar {
+            width: 320px;
+            background-color: var(--bg-sidebar);
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            border-right: 1px solid #333;
+            flex-shrink: 0; 
+        }
+
+        /* Search Pill  */
+        .search-pill {
+            background-color: transparent;
+            border: 1px solid var(--text-gray);
+            border-radius: var(--radius-pill);
+            padding: 8px 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+            margin-bottom: 10px;
+        }
+        .search-left { display: flex; align-items: center; gap: 8px; flex-grow: 1; }
+        .search-left input { background: transparent; border: none; color: white; outline: none; width: 100%; font-size: 0.9rem; }
+        .search-time { border-left: 1px solid var(--text-gray); padding-left: 10px; font-size: 0.8rem; color: white; white-space: nowrap;}
+
+        /* List Box */
+        .list-box {
+            background-color: var(--bg-cell);
+            border: 1px solid #444;
+            border-radius: var(--radius-main);
+            padding: 20px;
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .list-box h3 { font-size: 0.9rem; font-weight: 400; margin-bottom: 15px; letter-spacing: 1px; }
+
+        .side-item {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+            font-size: 0.9rem;
+        }
+        .side-item-title { font-weight: 600; margin-bottom: 2px; }
+        .side-item-date { font-size: 0.75rem; color: var(--text-gray); }
+
+        /* MDRRMO Sections  */
+        .mdrrmo-header {
+            background-color: white; color: black;
+            border-radius: var(--radius-main) var(--radius-main) 0 0;
+            padding: 10px 15px; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.5px;
+        }
+        
+        .section-container { display: flex; flex-direction: column; gap: 12px; margin-top: 5px; }
+
+        .btn-section {
+            width: 100%; padding: 12px; border-radius: var(--radius-pill); border: none;
+            font-weight: 600; font-size: 0.85rem; cursor: pointer; text-align: center;
+            color: black; transition: 0.2s; position: relative;
+        }
+        
+        .btn-blue { background-color: var(--neon-blue); }
+        .btn-red { background-color: var(--neon-red); }
+        .btn-green { background-color: var(--neon-green); }
+        .btn-orange { background-color: var(--neon-orange); } 
+        
+        .btn-section.active { outline: 3px solid white; }
+        .btn-section:hover { opacity: 0.9; }
+
+        /* Add Activity */
+        .add-btn-wrapper {
+            margin-top: auto; display: flex; align-items: center; gap: 10px; cursor: pointer; color: white; font-weight: 600;
+            transition: opacity 0.3s;
+        }
+        .add-icon {
+            width: 30px; height: 30px; background-color: var(--neon-green); color: black;
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-size: 1.2rem; font-weight: bold;
+        }
+        /* Lock state for Add Button */
+        .add-btn-wrapper.locked {
+            opacity: 0.3; cursor: not-allowed; pointer-events: none; filter: grayscale(1);
+        }
+
+        /* --- CALENDAR AREA --- */
+        .main-content {
+            flex-grow: 1; padding: 30px; display: flex; flex-direction: column; position: relative;
+            overflow-y: auto; 
+        }
+
+        .cal-header { margin-bottom: 20px; }
+        .cal-month { font-size: 1.5rem; font-weight: 300; color: white; }
+        
+        /* Year Wrapper to hold year + lock */
+        .cal-year-wrapper { display: flex; align-items: center; gap: 15px; }
+        .cal-year { font-size: 2.5rem; font-weight: 700; line-height: 1; color: white; }
+        
+        /* NEW: Lock Button Style */
+        .btn-lock {
+            background: transparent; border: 2px solid #555; color: #555;
+            width: 40px; height: 40px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; font-size: 1.2rem; transition: 0.3s;
+        }
+        .btn-lock.unlocked {
+            border-color: var(--neon-green); color: var(--neon-green);
+            box-shadow: 0 0 10px rgba(207, 255, 94, 0.2);
+        }
+        .btn-lock:hover { transform: scale(1.1); }
+
+        .cal-subtitle { font-size: 1.0rem; font-weight: bold; letter-spacing: 2px; color: rgb(13, 180, 13); margin-top: 5px; text-transform: uppercase;}
+
+        .controls { position: absolute; top: 30px; right: 30px; display: flex; gap: 10px; z-index: 10;}
+        .controls select { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+
+        /* GRID */
+        .calendar-grid {
+            display: grid; grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: 50px repeat(auto-fit, minmax(140px, 1fr)); 
+            gap: 15px; 
+            margin-bottom: 30px;
+        }
+
+        .day-header {
+            text-align: center; color: var(--neon-blue); font-weight: 700;
+            font-size: 1rem; text-transform: uppercase; padding: 15px; border-radius: 8px; transition: 0.3s;
+        }
+        /* Weekend Header Style */
+        .day-header.weekend { color: var(--neon-red); }
+
+        .day-header.active { background-color: rgb(1, 94, 1); color: white; box-shadow: 0 0 10px rgba(207, 255, 94, 0.4); }
+
+        /* CELLS */
+        .cal-cell {
+            background-color: #262626; 
+            border: 1px solid #444;    
+            border-radius: 12px; 
+            padding: 12px; 
+            position: relative;
+            cursor: pointer; 
+            transition: all 0.2s ease; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: flex-start; 
+            min-height: 140px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2); 
+            overflow: hidden;
+        }
+
+        /* Weekend Cell Style */
+        .cal-cell.weekend-cell {
+            background-color: rgba(255, 94, 94, 0.1); 
+            border-color: rgba(255, 94, 94, 0.3);
+        }
+
+        .cal-cell:hover { 
+            background-color: #333; 
+            border-color: #777;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.4);
+        }
+        .cell-num { 
+            font-size: 1.3rem; 
+            color: #ddd; 
+            font-weight: 700; 
+            margin-bottom: 8px; 
+        }
+        .is-today .cell-num { color: var(--neon-green); }
+        .is-today { 
+            border: 2px solid var(--neon-green); 
+            box-shadow: inset 0 0 15px rgba(207, 255, 94, 0.1);
+        }
+
+        .event-item { margin-top: 4px; }
+        .event-text { font-size: 0.75rem; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+        .event-bar { height: 4px; width: 100%; border-radius: 2px; }
+        
+        .bar-blue { background-color: var(--neon-blue); }
+        .bar-red { background-color: var(--neon-red); }
+        .bar-green { background-color: var(--neon-green); }
+        .bar-orange { background-color: var(--neon-orange); }
+
+        .empty-state {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #444; font-size: 1.5rem; font-weight: 600; pointer-events: none; text-align: center; width: 100%;
+        }
+
+        /* DASHBOARD FOOTER */
+        .dashboard-footer {
+            margin-top: auto;
+            background: rgba(255,255,255,0.05);
+            border-radius: var(--radius-main);
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .dash-card {
+            display: flex; flex-direction: column; justify-content: center;
+            border-right: 1px solid rgba(255,255,255,0.1);
+            padding-right: 20px;
+        }
+        .dash-card:last-child { border-right: none; }
+        .dash-title { font-size: 0.75rem; color: var(--text-gray); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .dash-value { font-size: 1.8rem; font-weight: 700; color: white; }
+        
+        .progress-wrapper { margin-top: 5px; background: #333; height: 6px; border-radius: 3px; width: 100%; overflow: hidden;}
+        .progress-fill { height: 100%; background: var(--neon-green); width: 0%; transition: width 0.5s ease; }
+        .stat-row { display: flex; justify-content: space-between; font-size: 0.7rem; color: #888; margin-top: 5px; }
+
+
+        /* --- MODALS  --- */
+        .modal {
+            display: none; position: fixed; z-index: 999; left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.8); justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background-color: #1e1e1e; padding: 30px; border-radius: 20px; width: 450px;
+            position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto;
+        }
+        .close-modal { position: absolute; top: 15px; right: 20px; color: white; font-size: 1.5rem; cursor: pointer; }
+
+        .modal-section-pill {
+            display: inline-block; padding: 8px 20px; border-radius: 50px; font-weight: bold;
+            color: black; margin-bottom: 20px; min-width: 150px; text-align: center;
+        }
+
+        .input-box { background-color: white; border-radius: 12px; padding: 12px; margin-bottom: 15px; }
+        .input-box label { display: block; font-size: 0.7rem; color: #555; font-weight: 700; margin-bottom: 5px; text-transform: uppercase;}
+        .input-box input, .input-box textarea, .input-box select {
+            width: 100%; border: none; outline: none; font-size: 0.95rem; color: black; background: transparent; font-weight: 500;
+        }
+        .date-group { display: flex; gap: 10px; }
+
+        .btn-done {
+            background-color: var(--neon-red); color: white; border: none; width: 100%;
+            padding: 12px; border-radius: 50px; font-weight: bold; font-size: 1rem; cursor: pointer; margin-top: 10px;
+        }
+        .btn-done:disabled { background-color: #555; cursor: not-allowed; }
+
+        .view-card { background: #2a2a2a; border-radius: 10px; padding: 15px; margin-bottom: 10px; border-left: 5px solid white; }
+        .view-actions { text-align: right; margin-top: 5px; display: flex; justify-content: flex-end; gap: 10px;}
+        .btn-icon { background: none; border: none; color: #aaa; cursor: pointer; font-size: 1.2rem; }
+        .btn-icon:hover { color: var(--neon-red); }
+        .btn-icon-edit:hover { color: var(--neon-blue); } 
+
+        table { width: 100%; border-collapse: collapse; color: white; }
+        th { text-align: left; color: var(--neon-green); padding: 10px; border-bottom: 1px solid #444; }
+        td { padding: 10px; border-bottom: 1px solid #333; font-size: 0.9rem; vertical-align: middle; }
+        
+        .filter-row { display: flex; gap: 8px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 5px; }
+        .filter-pill {
+            background: transparent; border: 1px solid #555; color: #aaa;
+            padding: 5px 15px; border-radius: 20px; cursor: pointer; font-size: 0.8rem;
+        }
+        .filter-pill.active { background: white; color: black; border-color: white; }
+
+        /* Documentation Buttons */
+        .doc-btn {
+            padding: 5px 10px; font-size: 0.8rem; border-radius: 15px; cursor: pointer; border: none; font-weight: 600; margin-right: 5px;
+        }
+        .btn-upload { background: var(--neon-blue); color: black; }
+        .btn-upload:hover { background: #3c9ee0; }
+        .btn-pdf { background: #ff4757; color: white; }
+        .btn-pdf:hover { background: #ff6b81; }
+        
+        .btn-view-docs { background: var(--neon-green); color: black; }
+        .btn-view-docs:hover { background: #b0e040; }
+
+        /* Gallery Grid */
+        .gallery-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 15px;
+        }
+        .gallery-item {
+            width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; position: relative; border: 1px solid #444; cursor: zoom-in;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
+        .gallery-item:hover img { transform: scale(1.05); }
+        .gallery-empty { text-align: center; color: #777; font-style: italic; margin-top: 20px; }
+
+        /* Delete Button on Photo */
+        .btn-delete-photo {
+            position: absolute; top: 5px; right: 5px;
+            background: rgba(255, 50, 50, 0.9); color: white;
+            border: none; border-radius: 50%; width: 24px; height: 24px;
+            cursor: pointer; font-weight: bold; z-index: 10;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; transition: 0.2s;
+        }
+        .btn-delete-photo:hover { background: red; transform: scale(1.1); }
+
+        /* PDF LIST Styles */
+        .pdf-section-title { margin-top: 25px; margin-bottom: 10px; font-size: 0.9rem; color: var(--neon-orange); font-weight: 600; border-top: 1px solid #333; padding-top: 10px;}
+        .pdf-list { display: flex; flex-direction: column; gap: 8px; }
+        .pdf-card { 
+            background: #2a2a2a; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #444;
+        }
+        .pdf-info { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: white;}
+        .pdf-icon { color: var(--neon-red); font-size: 1.2rem; }
+        .pdf-actions { display: flex; gap: 5px; }
+        .btn-pdf-action { padding: 4px 10px; border-radius: 4px; border:none; cursor: pointer; font-size: 0.75rem; font-weight: bold;}
+        .btn-download-pdf { background: var(--neon-blue); color: black; }
+        .btn-delete-pdf { background: #333; color: #ff5e5e; }
+        .btn-delete-pdf:hover { background: #444; }
+
+
+        /* Lightbox Styles */
+        .lightbox-content {
+            display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%; justify-content: center;
+        }
+        .lightbox-img-wrapper {
+            max-width: 100%; max-height: 80vh; overflow: hidden; border-radius: 10px; border: 2px solid #555;
+        }
+        .lightbox-img-wrapper img {
+            max-width: 100%; max-height: 80vh; object-fit: contain; display: block;
+        }
+        .btn-download-main {
+            background-color: var(--neon-blue); color: black; padding: 10px 20px; 
+            border-radius: 30px; border: none; font-weight: bold; margin-top: 15px; cursor: pointer;
+        }
+        .btn-download-all {
+            background-color: var(--neon-green); color: black; padding: 8px 15px;
+            border-radius: 20px; border: none; font-weight: bold; font-size: 0.8rem; cursor: pointer; float: right;
+        }
+
+        .notification {
+            position: fixed; bottom: 30px; right: 30px; background: var(--neon-green); color: black;
+            padding: 15px 25px; border-radius: 10px; font-weight: bold; display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.5); z-index: 1000;
+        }
+
+        /* --- CSS MEDIA QUERIES FOR MOBILE RESPONSIVENESS --- */
+        @media (max-width: 900px) {
+            body { flex-direction: column; overflow-y: auto; height: auto; }
+            .sidebar { width: 100%; border-right: none; border-bottom: 1px solid #333; padding: 15px; flex-direction: row; flex-wrap: wrap; gap: 15px; }
+            .list-box { min-height: 200px; max-height: 250px; flex-grow: 1; min-width: 300px;}
+            .search-pill { width: 100%; }
+            .main-content { padding: 15px; }
+            .controls { top: 15px; right: 15px; }
+            .cal-header { margin-top: 30px; }
+            .calendar-grid { grid-template-columns: repeat(7, minmax(40px, 1fr)); gap: 5px; height: auto; min-height: 0; margin-bottom: 20px;}
+            .cal-cell { min-height: 80px; padding: 5px; }
+            .day-header { font-size: 0.7rem; padding: 11px; }
+            .event-text { font-size: 0.65rem; }
+            .modal-content { width: 90%; padding: 20px; }
+            .dashboard-footer { grid-template-columns: 1fr 1fr; }
+            .dash-card { border-right: none; margin-bottom: 10px;}
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div style="margin-top:15px; font-weight:600;">Connecting to Cloud...</div>
+    </div>
+
+    <div class="sidebar">
+        <div style="width: 100%;">
+            <div class="search-pill">
+                <div class="search-left">
+                    <span>&#128269;</span> <input type="text" id="searchInput" placeholder="Search activities...">
+                </div>
+                <div class="search-time" id="clock">1:00 PM</div>
+            </div>
+            
+            <div>
+                <div class="mdrrmo-header">MDRRMO SECTIONS</div>
+                <div class="section-container">
+                    <button class="btn-section btn-blue" onclick="toggleSection('Admin and Training')">Admin and Training</button>
+                    <button class="btn-section btn-red" onclick="toggleSection('Operations and Warning')">Operations and Warning</button>
+                    <button class="btn-section btn-green" onclick="toggleSection('Research and Planning')">Research and Planning</button>
+                    <button class="btn-section btn-orange" onclick="toggleSection('Others')">Others</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="list-box" onclick="openListModal()" style="cursor: pointer;">
+            <h3>LIST OF ACTIVITIES (Click to view full)</h3>
+            <div id="sideListContent"></div>
+        </div>
+
+        <div id="addBtnWrapper" class="add-btn-wrapper locked" onclick="openAddModal()">
+            <div class="add-icon">+</div>
+            <span>ADD ACTIVITY</span>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="controls">
+            <select id="monthSelect"></select>
+            <select id="yearSelect"></select>
+        </div>
+
+        <div class="cal-header">
+            <div class="cal-month" id="displayMonth">January</div>
+            <div class="cal-year-wrapper">
+                <div class="cal-year" id="displayYear">2026</div>
+                <button id="lockBtn" class="btn-lock" onclick="toggleLock()" title="Click to Unlock/Lock">
+                    &#128274; </button>
+            </div>
+            <div class="cal-subtitle">MUNICIPAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE</div>
+        </div>
+
+        <div class="calendar-grid" id="calendarGrid"></div>
+
+        <div class="dashboard-footer" id="dashboardFooter">
+            </div>
+    </div>
+
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('addModal')">&times;</span>
+            <div style="text-align: center;">
+                <div id="modalPill" class="modal-section-pill" style="background-color: white;">Select Section</div>
+            </div>
+            <form id="addForm">
+                <input type="hidden" id="editItemId" value="">
+                <div class="input-box">
+                    <label>Section</label>
+                    <select id="addSection" onchange="updateModalColor()">
+                        <option value="">-- Choose Section --</option>
+                        <option value="Admin and Training">Admin and Training</option>
+                        <option value="Operations and Warning">Operations and Warning</option>
+                        <option value="Research and Planning">Research and Planning</option>
+                        <option value="Others">Others</option>
+                    </select>
+                </div>
+                <div class="date-group">
+                    <div class="input-box" style="flex:1">
+                        <label>Start Date</label>
+                        <input type="date" id="addStart" required>
+                    </div>
+                    <div class="input-box" style="flex:1">
+                        <label>End Date</label>
+                        <input type="date" id="addEnd" required>
+                    </div>
+                </div>
+                <div class="input-box">
+                    <label>Start Time (Optional)</label>
+                    <input type="time" id="addTime">
+                </div>
+                <div class="input-box">
+                    <label>Title of Activity</label>
+                    <input type="text" id="addTitle" placeholder="Ex: CEPA" required>
+                </div>
+                <div class="input-box">
+                    <label>Description (Optional)</label>
+                    <textarea id="addDesc" rows="2" placeholder="Details..."></textarea>
+                </div>
+                <button type="submit" id="btnDone" class="btn-done" disabled>DONE</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="viewModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('viewModal')">&times;</span>
+            <h2 id="viewDateTitle" style="color:white; margin-bottom: 20px;">Details</h2>
+            <div id="viewContainer"></div>
+            <button id="viewAddMoreBtn" class="btn-section btn-green" style="margin-top:20px;" onclick="switchToAddFromView()">+ Add Another</button>
+        </div>
+    </div>
+
+    <div id="listModal" class="modal">
+        <div class="modal-content" style="width: 800px; background-color: #1a1a1a;">
+            <span class="close-modal" onclick="closeModal('listModal')">&times;</span>
+            <h2 style="color:white; margin-bottom: 20px;">List of Activities</h2>
+            
+            <div class="filter-row">
+                <button class="filter-pill active" onclick="filterList('all', this)">All</button>
+                <button class="filter-pill" onclick="filterList('Admin', this)">Admin</button>
+                <button class="filter-pill" onclick="filterList('Operations', this)">Ops</button>
+                <button class="filter-pill" onclick="filterList('Research', this)">Research</button>
+                <button class="filter-pill" onclick="filterList('Others', this)">Others</button> 
+                <div style="width:1px; background:#555; margin:0 5px;"></div>
+                <button class="filter-pill" onclick="filterListStatus('Done', this)">Done</button>
+                <button class="filter-pill" onclick="filterListStatus('Pending', this)">Pending</button>
+            </div>
+
+            <div style="max-height: 400px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th style="width: 30%;">Title</th>
+                            <th>Status</th>
+                            <th>Documentation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="listTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="galleryModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('galleryModal')">&times;</span>
+            <div style="overflow: hidden; margin-bottom: 15px;">
+                <h2 style="color:white; float:left;">Documentation</h2>
+                <button id="btnDownloadAll" class="btn-download-all" onclick="downloadAllPhotos()">&#128193; Download All (ZIP)</button>
+            </div>
+            <div id="galleryGrid" class="gallery-grid"></div>
+            
+            <div id="pdfSection" style="display:none;">
+                <div class="pdf-section-title">Attached Documents (PDF)</div>
+                <div id="pdfList" class="pdf-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="lightboxModal" class="modal" style="background-color: rgba(0,0,0,0.95);">
+        <span class="close-modal" onclick="closeModal('lightboxModal')" style="font-size: 2rem;">&times;</span>
+        <div class="modal-content" style="background: transparent; box-shadow: none; width: auto; max-width: 90%;">
+            <div class="lightbox-content">
+                <div class="lightbox-img-wrapper">
+                    <img id="lightboxImg" src="" alt="Enlarged View">
+                </div>
+                <button id="btnDownloadSingle" class="btn-download-main" onclick="downloadSinglePhoto()">&#8679; Download This Photo</button>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="docsUpload" accept="image/*" style="display:none">
+    <input type="file" id="pdfUpload" accept="application/pdf" style="display:none">
+
+    <div id="notification" class="notification">Activity Added!</div>
+
+    <script>
+        // --- DATA & STATE ---
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        let now = new Date();
+        let curMonth = now.getMonth();
+        let curYear = now.getFullYear();
+        let activeFilter = null;
+        let currentUploadId = null; 
+        let currentGalleryId = null; 
+        let currentViewImg = null; 
+        
+        // GLOBAL LOCK STATE (Starts Locked)
+        let isAppLocked = true; 
+
+        // Initial Data (Starts Empty, Fetched from Neon)
+        let activities = [];
+
+        const grid = document.getElementById('calendarGrid');
+        
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag])
+            );
+        }
+
+        // Helper: Convert 24h string to 12h
+        function convertTo12Hour(timeStr) {
+            if (!timeStr) return "";
+            let [hours, minutes] = timeStr.split(':');
+            let h = parseInt(hours);
+            let ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12;
+            h = h ? h : 12; 
+            return `${h}:${minutes} ${ampm}`;
+        }
+
+        // --- NEW DATA FETCHING LOGIC ---
+        async function fetchActivities() {
+            try {
+                // Call Netlify Function
+                const res = await fetch('/.netlify/functions/activities');
+                if (!res.ok) throw new Error('Failed to load');
+                const data = await res.json();
+                activities = data;
+                renderAllUI();
+                document.getElementById('loadingOverlay').style.display = 'none';
+            } catch (err) {
+                console.error(err);
+                document.getElementById('loadingOverlay').innerHTML = `<div style="color:red">Error loading database.<br>Please check connection.</div>`;
+            }
+        }
+
+        function init() {
+            populateControls();
+            updateClock();
+            setInterval(updateClock, 1000 * 60);
+            
+            // Initial Fetch
+            fetchActivities();
+
+            document.getElementById('monthSelect').addEventListener('change', (e) => {
+                curMonth = parseInt(e.target.value);
+                renderAllUI();
+            });
+            document.getElementById('yearSelect').addEventListener('change', (e) => {
+                curYear = parseInt(e.target.value);
+                renderAllUI();
+            });
+            document.getElementById('searchInput').addEventListener('input', () => {
+                renderAllUI();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+                }
+            });
+
+            // File Listeners
+            document.getElementById('docsUpload').addEventListener('change', handleFileSelect);
+            document.getElementById('pdfUpload').addEventListener('change', handlePdfSelect);
+        }
+
+        function updateClock() {
+            const d = new Date();
+            let h = d.getHours(), m = d.getMinutes(), ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            m = m < 10 ? '0'+m : m;
+            document.getElementById('clock').innerText = `${h}:${m} ${ampm}`;
+        }
+
+        function populateControls() {
+            const mSel = document.getElementById('monthSelect');
+            const ySel = document.getElementById('yearSelect');
+            monthNames.forEach((m, i) => {
+                let opt = document.createElement('option');
+                opt.value = i; opt.innerText = m;
+                if(i === curMonth) opt.selected = true;
+                mSel.appendChild(opt);
+            });
+            for(let y = curYear-2; y <= curYear+5; y++){
+                let opt = document.createElement('option');
+                opt.value = y; opt.innerText = y;
+                if(y === curYear) opt.selected = true;
+                ySel.appendChild(opt);
+            }
+        }
+
+        // --- MASTER RENDER FUNCTION ---
+        function renderAllUI() {
+            renderCalendar();
+            renderSidebar();
+            renderDashboard();
+            updateLockUI();
+        }
+
+        // --- LOCK LOGIC ---
+        function toggleLock() {
+            const btn = document.getElementById('lockBtn');
+            if (isAppLocked) {
+                let pass = prompt("Enter Admin Passkey to Enable Editing:");
+                if (pass === "COA2026") {
+                    isAppLocked = false;
+                    alert("🔓 Editing Enabled");
+                    renderAllUI();
+                } else {
+                    if(pass !== null) alert("❌ Incorrect Passkey");
+                }
+            } else {
+                isAppLocked = true;
+                alert("🔒 App Locked (Read-Only Mode)");
+                renderAllUI();
+            }
+        }
+
+        function updateLockUI() {
+            const btn = document.getElementById('lockBtn');
+            const addWrapper = document.getElementById('addBtnWrapper');
+            
+            if (isAppLocked) {
+                btn.innerHTML = "&#128274;"; 
+                btn.classList.remove('unlocked');
+                addWrapper.classList.add('locked');
+            } else {
+                btn.innerHTML = "&#128275;"; 
+                btn.classList.add('unlocked');
+                addWrapper.classList.remove('locked');
+            }
+        }
+
+        // --- CALENDAR RENDERER ---
+        function renderCalendar() {
+            document.getElementById('displayMonth').innerText = monthNames[curMonth];
+            document.getElementById('displayYear').innerText = curYear;
+            grid.innerHTML = '';
+            
+            const searchQuery = document.getElementById('searchInput').value.toLowerCase();
+            let hasEventsThisMonth = false;
+            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const todayIndex = new Date().getDay(); 
+
+            days.forEach((d, index) => {
+                let el = document.createElement('div');
+                el.className = 'day-header';
+                if (index === 0 || index === 6) el.classList.add('weekend');
+                if(index === todayIndex) el.classList.add('active');
+                el.innerText = d;
+                grid.appendChild(el);
+            });
+
+            const firstDay = new Date(curYear, curMonth, 1).getDay();
+            const daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
+
+            for(let i=0; i<firstDay; i++) {
+                let el = document.createElement('div');
+                el.className = 'cal-cell';
+                el.style.opacity = '0';
+                el.style.pointerEvents = 'none';
+                grid.appendChild(el);
+            }
+
+            for(let i=1; i<=daysInMonth; i++) {
+                let dateStr = `${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+                let dateObj = new Date(curYear, curMonth, i);
+                let dayOfWeek = dateObj.getDay(); 
+
+                let cell = document.createElement('div');
+                cell.className = 'cal-cell';
+                if (dayOfWeek === 0 || dayOfWeek === 6) cell.classList.add('weekend-cell');
+
+                let num = document.createElement('div');
+                num.className = 'cell-num';
+                num.innerText = i;
+                cell.appendChild(num);
+
+                let todayStr = new Date().toISOString().split('T')[0];
+                if(dateStr === todayStr) cell.classList.add('is-today');
+
+                let dayActs = activities.filter(a => {
+                    let isInRange = dateStr >= a.start && dateStr <= a.end;
+                    let matchesSearch = !searchQuery || a.title.toLowerCase().includes(searchQuery) || (a.desc && a.desc.toLowerCase().includes(searchQuery));
+                    return isInRange && matchesSearch;
+                });
+
+                dayActs.forEach(act => {
+                    hasEventsThisMonth = true; 
+                    let eventDiv = document.createElement('div');
+                    eventDiv.className = 'event-item';
+                    
+                    let totalDays = Math.ceil((new Date(act.end) - new Date(act.start)) / (1000 * 60 * 60 * 24)) + 1;
+                    let currentDay = Math.ceil((new Date(dateStr) - new Date(act.start)) / (1000 * 60 * 60 * 24)) + 1;
+                    let multiDayLabel = totalDays > 1 ? ` (${currentDay}/${totalDays})` : '';
+
+                    let titleDiv = document.createElement('div');
+                    titleDiv.className = 'event-text';
+                    let timeLabel = act.time ? `<span style="color:#aaa; margin-right:3px;">${convertTo12Hour(act.time)}</span> ` : '';
+                    titleDiv.innerHTML = timeLabel + escapeHTML(act.title) + multiDayLabel;
+                    
+                    let barDiv = document.createElement('div');
+                    barDiv.className = 'event-bar';
+                    if(act.section.includes('Admin')) barDiv.classList.add('bar-blue');
+                    else if(act.section.includes('Operations')) barDiv.classList.add('bar-red');
+                    else if(act.section.includes('Research')) barDiv.classList.add('bar-green');
+                    else if(act.section === 'Others') barDiv.classList.add('bar-orange'); 
+                    
+                    if(activeFilter && act.section !== activeFilter) eventDiv.style.opacity = '0.2';
+                    eventDiv.appendChild(titleDiv);
+                    eventDiv.appendChild(barDiv);
+                    cell.appendChild(eventDiv);
+                });
+
+                cell.onclick = () => {
+                    if(dayActs.length > 0) openViewModal(dateStr, dayActs);
+                    else {
+                        if(!isAppLocked) openAddModal(dateStr);
+                    }
+                };
+                grid.appendChild(cell);
+            }
+
+            if (!hasEventsThisMonth) {
+                let emptyMsg = document.createElement('div');
+                emptyMsg.className = 'empty-state';
+                emptyMsg.innerText = searchQuery ? "No matches found." : "No activities scheduled.";
+                grid.appendChild(emptyMsg);
+            }
+        }
+
+        // --- DASHBOARD RENDERER ---
+        function renderDashboard() {
+            let monthlyActs = activities.filter(a => {
+                let d = new Date(a.start);
+                return d.getMonth() === curMonth && d.getFullYear() === curYear;
+            });
+
+            let total = monthlyActs.length;
+            let done = monthlyActs.filter(a => a.status === 'Done').length;
+            let percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
+            let adminCount = monthlyActs.filter(a => a.section.includes('Admin')).length;
+            let opsCount = monthlyActs.filter(a => a.section.includes('Operations')).length;
+            let resCount = monthlyActs.filter(a => a.section.includes('Research')).length;
+            let othersCount = monthlyActs.filter(a => a.section === 'Others').length;
+
+            const dash = document.getElementById('dashboardFooter');
+            dash.innerHTML = `
+                <div class="dash-card">
+                    <div class="dash-title">Total Activities</div>
+                    <div class="dash-value">${total}</div>
+                    <div class="stat-row">
+                        <span>This Month</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-title">Completion Rate</div>
+                    <div class="dash-value">${percent}%</div>
+                    <div class="progress-wrapper">
+                        <div class="progress-fill" style="width: ${percent}%"></div>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-title">Status Breakdown</div>
+                    <div style="font-size: 0.9rem; color: #ddd; display: flex; justify-content: space-between; margin-bottom: 2px;">
+                        <span>Done: <b style="color:var(--neon-green)">${done}</b></span>
+                        <span>Pending: <b style="color:var(--neon-red)">${total - done}</b></span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-title">Section Summary</div>
+                    <div style="font-size: 0.8rem; color: #aaa; display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                        <div>Admin: <span style="color:white">${adminCount}</span></div>
+                        <div>Ops: <span style="color:white">${opsCount}</span></div>
+                        <div>Research: <span style="color:white">${resCount}</span></div>
+                        <div>Others: <span style="color:white">${othersCount}</span></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- SIDEBAR ---
+        function renderSidebar() {
+            const list = document.getElementById('sideListContent');
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            list.innerHTML = '';
+            let filtered = activities.filter(a => {
+                if(query) return a.title.toLowerCase().includes(query) || (a.desc && a.desc.toLowerCase().includes(query));
+                return new Date(a.end) >= new Date(); 
+            }).sort((a,b) => new Date(a.start) - new Date(b.start));
+
+            if(filtered.length === 0) {
+                list.innerHTML = `<div style="color: #666; font-size: 0.8rem; text-align:center; margin-top:10px;">No results</div>`;
+            }
+
+            filtered.forEach(a => {
+                let div = document.createElement('div');
+                div.className = 'side-item';
+                let color = '#fff';
+                if(a.section.includes('Admin')) color = 'var(--neon-blue)';
+                if(a.section.includes('Operations')) color = 'var(--neon-red)';
+                if(a.section.includes('Research')) color = 'var(--neon-green)';
+                if(a.section === 'Others') color = 'var(--neon-orange)'; 
+                
+                let timeStr = a.time ? ` at ${convertTo12Hour(a.time)}` : '';
+
+                div.innerHTML = `
+                    <div class="side-item-title" style="color:${color}">${escapeHTML(a.title)}</div>
+                    <div class="side-item-date">${formatRange(a.start, a.end)}${timeStr}</div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function formatRange(s, e) {
+            if(s === e) return s;
+            return `${s} to ${e}`;
+        }
+
+        function toggleSection(sec) {
+            if(activeFilter === sec) {
+                activeFilter = null;
+                document.querySelectorAll('.btn-section').forEach(b => b.classList.remove('active'));
+            } else {
+                activeFilter = sec;
+                document.querySelectorAll('.btn-section').forEach(b => b.classList.remove('active'));
+                if(sec.includes('Admin')) document.querySelector('.btn-blue').classList.add('active');
+                if(sec.includes('Operations')) document.querySelector('.btn-red').classList.add('active');
+                if(sec.includes('Research')) document.querySelector('.btn-green').classList.add('active');
+                if(sec === 'Others') document.querySelector('.btn-orange').classList.add('active'); 
+            }
+            renderCalendar();
+        }
+
+        // --- MODALS & FORMS ---
+        function openAddModal(dateStr = '') {
+            if(isAppLocked) return;
+
+            document.getElementById('addModal').style.display = 'flex';
+            document.getElementById('addForm').reset();
+            document.getElementById('editItemId').value = ''; 
+            document.getElementById('modalPill').style.backgroundColor = 'white';
+            document.getElementById('modalPill').innerText = 'Select Section';
+            document.getElementById('btnDone').innerText = 'DONE'; 
+            if(dateStr) {
+                document.getElementById('addStart').value = dateStr;
+                document.getElementById('addEnd').value = dateStr;
+            }
+            checkForm();
+        }
+
+        function editItem(id) {
+            closeModal('viewModal');
+            let item = activities.find(a => a.id === id);
+            if(item) {
+                document.getElementById('addModal').style.display = 'flex';
+                document.getElementById('editItemId').value = item.id;
+                document.getElementById('addSection').value = item.section;
+                document.getElementById('addStart').value = item.start;
+                document.getElementById('addEnd').value = item.end;
+                document.getElementById('addTime').value = item.time || ""; 
+                document.getElementById('addTitle').value = item.title;
+                document.getElementById('addDesc').value = item.desc || "";
+                updateModalColor();
+                document.getElementById('btnDone').innerText = 'UPDATE ACTIVITY';
+                checkForm();
+            }
+        }
+
+        function updateModalColor() {
+            const sec = document.getElementById('addSection').value;
+            const pill = document.getElementById('modalPill');
+            if(sec.includes('Admin')) { pill.style.backgroundColor = 'var(--neon-blue)'; pill.innerText = 'Admin & Training'; }
+            else if(sec.includes('Operations')) { pill.style.backgroundColor = 'var(--neon-red)'; pill.innerText = 'Operations & Warning'; }
+            else if(sec.includes('Research')) { pill.style.backgroundColor = 'var(--neon-green)'; pill.innerText = 'Research & Planning'; }
+            else if(sec === 'Others') { pill.style.backgroundColor = 'var(--neon-orange)'; pill.innerText = 'Others'; } 
+            else { pill.style.backgroundColor = 'white'; pill.innerText = 'Select Section'; }
+            checkForm();
+        }
+
+        document.getElementById('addForm').addEventListener('input', checkForm);
+
+        function checkForm() {
+            const s = document.getElementById('addSection').value;
+            const t = document.getElementById('addTitle').value.trim();
+            const d1 = document.getElementById('addStart').value;
+            const d2 = document.getElementById('addEnd').value;
+            let valid = s && t && d1 && d2;
+            if(d2 < d1) valid = false;
+            document.getElementById('btnDone').disabled = !valid;
+        }
+
+        // --- SAVE TO DB LOGIC ---
+        document.getElementById('addForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if(isAppLocked) return;
+
+            let editId = document.getElementById('editItemId').value;
+            
+            // Build Object
+            const activityData = {
+                id: editId || String(Date.now()), // New ID if creating, Old ID if editing
+                section: document.getElementById('addSection').value,
+                start: document.getElementById('addStart').value,
+                end: document.getElementById('addEnd').value,
+                time: document.getElementById('addTime').value, 
+                title: document.getElementById('addTitle').value.trim(),
+                desc: document.getElementById('addDesc').value.trim(),
+                // Keep old status/photos if editing
+                status: editId ? activities.find(a => a.id == editId).status : 'Pending',
+                photos: editId ? activities.find(a => a.id == editId).photos : [],
+                pdfs: editId ? activities.find(a => a.id == editId).pdfs : []
+            };
+
+            const notif = document.getElementById('notification');
+            notif.innerText = "Saving to Database...";
+            notif.style.display = 'block';
+
+            try {
+                // Post to API
+                const res = await fetch('/.netlify/functions/activities', {
+                    method: 'POST',
+                    body: JSON.stringify(activityData)
+                });
+
+                if(res.ok) {
+                    await fetchActivities(); // Refresh from DB
+                    closeModal('addModal');
+                    notif.innerText = "Saved Successfully!";
+                } else {
+                    notif.innerText = "Save Failed!";
+                }
+            } catch(err) {
+                console.error(err);
+                notif.innerText = "Connection Error";
+            }
+            setTimeout(()=> notif.style.display = 'none', 3000);
+        });
+
+        // --- VIEW & LIST LOGIC ---
+        function openViewModal(date, acts) {
+            const modal = document.getElementById('viewModal');
+            document.getElementById('viewDateTitle').innerText = date;
+            modal.dataset.date = date; 
+            
+            const addMoreBtn = document.getElementById('viewAddMoreBtn');
+            if (isAppLocked) addMoreBtn.style.display = 'none';
+            else addMoreBtn.style.display = 'inline-block';
+
+            const con = document.getElementById('viewContainer');
+            con.innerHTML = '';
+            acts.forEach(a => {
+                let color = 'white';
+                if(a.section.includes('Admin')) color = 'var(--neon-blue)';
+                if(a.section.includes('Operations')) color = 'var(--neon-red)';
+                if(a.section.includes('Research')) color = 'var(--neon-green)';
+                if(a.section === 'Others') color = 'var(--neon-orange)';
+                
+                let docBtn = '';
+                if(a.status === 'Done') {
+                    docBtn = `<button class="btn-icon" onclick="openGallery('${a.id}')" title="View Photos">&#128247;</button>`;
+                }
+
+                let timeInfo = a.time ? `<div style="font-size:0.9rem; color:#fff; font-weight:bold; margin-top:2px;">&#128337; ${convertTo12Hour(a.time)}</div>` : '';
+
+                let editActions = '';
+                if (!isAppLocked) {
+                    editActions = `
+                        <button class="btn-icon btn-icon-edit" onclick="editItem('${a.id}')" title="Edit">&#9998;</button>
+                        <button class="btn-icon" onclick="deleteItem('${a.id}')" title="Delete">&times;</button>
+                    `;
+                }
+
+                let card = document.createElement('div');
+                card.className = 'view-card';
+                card.style.borderLeftColor = color;
+
+                card.innerHTML = `
+                    <div style="color:${color}; font-size:0.8rem; font-weight:bold;">${a.section}</div>
+                    <h3 style="color:white; margin:5px 0;">${escapeHTML(a.title)}</h3>
+                    ${timeInfo}
+                    <div style="font-size:0.8rem; color:#aaa;">${formatRange(a.start, a.end)}</div>
+                    <div style="font-size:0.9rem; margin-top:5px; white-space: pre-wrap;">${escapeHTML(a.desc)}</div>
+                    <div class="view-actions">
+                        ${docBtn}
+                        ${editActions}
+                    </div>
+                `;
+                con.appendChild(card);
+            });
+            modal.style.display = 'flex';
+        }
+
+        async function deleteItem(id) {
+            if(confirm('Are you sure you want to delete this activity?')) {
+                try {
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'DELETE',
+                        body: JSON.stringify({ id: id })
+                    });
+                    await fetchActivities();
+                    closeModal('viewModal');
+                } catch(err) {
+                    alert("Error deleting item");
+                }
+            }
+        }
+
+        function switchToAddFromView() {
+            const d = document.getElementById('viewModal').dataset.date;
+            closeModal('viewModal');
+            openAddModal(d);
+        }
+
+        // List Modal Variables
+        let listFilterSec = 'all';
+        let listFilterStat = 'all';
+
+        function openListModal() {
+            document.getElementById('listModal').style.display = 'flex';
+            renderListTable();
+        }
+
+        function filterList(sec, btn) {
+            listFilterSec = sec;
+            document.querySelectorAll('.filter-pill').forEach(b => {
+               if(!b.innerText.match(/Done|Pending/)) b.classList.remove('active');
+            });
+            btn.classList.add('active');
+            renderListTable();
+        }
+        function filterListStatus(stat, btn) {
+            listFilterStat = stat;
+             document.querySelectorAll('.filter-pill').forEach(b => {
+               if(b.innerText.match(/Done|Pending/)) b.classList.remove('active');
+            });
+            btn.classList.add('active');
+            renderListTable();
+        }
+
+        function renderListTable() {
+            const tb = document.getElementById('listTableBody');
+            tb.innerHTML = '';
+            
+            let data = activities.filter(a => {
+                let matchSec = listFilterSec === 'all' || a.section.includes(listFilterSec) || (listFilterSec === 'Others' && a.section === 'Others');
+                let matchStat = listFilterStat === 'all' || a.status === listFilterStat;
+                return matchSec && matchStat;
+            });
+
+            if(data.length === 0) {
+                tb.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#555;">No records found</td></tr>';
+                return;
+            }
+
+            data.forEach(a => {
+                let tr = document.createElement('tr');
+                let docActions = '<span style="color:#555; font-size:0.8rem;">-</span>';
+                let isDisabled = ''; 
+
+                if (isAppLocked) {
+                    isDisabled = 'disabled style="opacity: 0.6; cursor: not-allowed; background:#333; color: #888; border:none; padding:5px; border-radius: 4px;"';
+                    if (a.status === 'Done') {
+                        docActions = `<button class="doc-btn btn-view-docs" onclick="openGallery('${a.id}')">View</button>`;
+                    }
+                } else {
+                    if (a.status === 'Done') {
+                        docActions = `
+                            <button class="doc-btn btn-upload" onclick="triggerUpload('${a.id}')" title="Upload Photo">&#128247;</button>
+                            <button class="doc-btn btn-pdf" onclick="triggerPdfUpload('${a.id}')" title="Upload PDF">&#128196;</button>
+                            <button class="doc-btn btn-view-docs" onclick="openGallery('${a.id}')">View</button>
+                        `;
+                        isDisabled = 'disabled style="opacity: 0.6; cursor: not-allowed; background:#333; color: #888; border:none; padding:5px; border-radius: 4px;"';
+                    } else {
+                        isDisabled = 'style="background:#333; color:white; border:none; padding:5px; border-radius: 4px;"';
+                    }
+                }
+
+                tr.innerHTML = `
+                    <td>${formatRange(a.start, a.end)}</td>
+                    <td>${escapeHTML(a.title)}</td>
+                    <td>
+                        <select ${isDisabled} onchange="updateStatus('${a.id}', this.value)">
+                            <option ${a.status==='Pending'?'selected':''}>Pending</option>
+                            <option ${a.status==='Done'?'selected':''}>Done</option>
+                        </select>
+                    </td>
+                    <td>${docActions}</td>
+                `;
+                tb.appendChild(tr);
+            });
+        }
+
+        async function updateStatus(id, val) {
+            if (isAppLocked) return;
+            if (val === 'Done') {
+                if (!confirm("Are you sure? Once Done, you can only revert by deleting.")) {
+                    renderListTable(); return;
+                }
+            }
+
+            let item = activities.find(a => a.id == id);
+            if(item) {
+                item.status = val;
+                // Sync to DB
+                try {
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'POST',
+                        body: JSON.stringify(item)
+                    });
+                    await fetchActivities();
+                } catch(e) {
+                    alert("Sync Error");
+                }
+            }
+        }
+
+        // --- UPLOAD AND GALLERY LOGIC ---
+
+        function triggerUpload(id) {
+            currentUploadId = id;
+            document.getElementById('docsUpload').click();
+        }
+        function triggerPdfUpload(id) {
+            currentUploadId = id;
+            document.getElementById('pdfUpload').click();
+        }
+
+        // UNIVERSAL R2 UPLOADER
+        async function uploadToR2(file) {
+            const authRes = await fetch('/.netlify/functions/upload-auth', {
+                method: 'POST',
+                body: JSON.stringify({ fileName: file.name, fileType: file.type })
+            });
+            const { uploadUrl, publicUrl } = await authRes.json();
+            
+            await fetch(uploadUrl, {
+                method: 'PUT',
+                body: file,
+                headers: { 'Content-Type': file.type }
+            });
+            return publicUrl;
+        }
+
+        async function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file || !currentUploadId) return;
+
+            try {
+                const notif = document.getElementById('notification');
+                notif.innerText = "Uploading to Cloud...";
+                notif.style.display = 'block';
+
+                const publicUrl = await uploadToR2(file);
+                
+                let item = activities.find(a => a.id == currentUploadId);
+                if(item) {
+                    if(!item.photos) item.photos = [];
+                    item.photos.push(publicUrl);
+
+                    // Update DB
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'POST',
+                        body: JSON.stringify(item)
+                    });
+                    
+                    notif.innerText = "Upload Complete!";
+                    setTimeout(() => notif.style.display='none', 3000);
+                    await fetchActivities();
+                    renderListTable();
+                }
+            } catch(err) {
+                console.error(err);
+                alert("Upload Failed: " + err.message);
+            }
+            e.target.value = '';
+        }
+
+        async function handlePdfSelect(e) {
+            const file = e.target.files[0];
+            if (!file || !currentUploadId) return;
+
+            try {
+                const notif = document.getElementById('notification');
+                notif.innerText = "Uploading PDF...";
+                notif.style.display = 'block';
+
+                const publicUrl = await uploadToR2(file);
+                
+                let item = activities.find(a => a.id == currentUploadId);
+                if(item) {
+                    if(!item.pdfs) item.pdfs = [];
+                    item.pdfs.push({ name: file.name, url: publicUrl }); // Store URL
+
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'POST',
+                        body: JSON.stringify(item)
+                    });
+                    
+                    notif.innerText = "PDF Uploaded!";
+                    setTimeout(() => notif.style.display='none', 3000);
+                    await fetchActivities();
+                    renderListTable();
+                }
+            } catch(err) {
+                console.error(err);
+                alert("PDF Upload Failed");
+            }
+            e.target.value = '';
+        }
+
+        function openGallery(id) {
+            let item = activities.find(a => a.id == id);
+            if(!item) return;
+            currentGalleryId = id; 
+
+            // 1. Photos
+            const grid = document.getElementById('galleryGrid');
+            grid.innerHTML = '';
+            const btnAll = document.getElementById('btnDownloadAll');
+
+            if((!item.photos || item.photos.length === 0) && (!item.pdfs || item.pdfs.length === 0)) {
+                grid.innerHTML = '<div class="gallery-empty">No documentation uploaded yet.</div>';
+                btnAll.style.display = 'none';
+            } else {
+                btnAll.style.display = 'block';
+                if(item.photos) {
+                    item.photos.forEach((src, index) => {
+                        let div = document.createElement('div');
+                        div.className = 'gallery-item';
+                        div.onclick = () => openLightbox(src);
+                        
+                        let delBtn = isAppLocked ? '' : `<button class="btn-delete-photo" onclick="deletePhoto(event, '${id}', ${index})" title="Delete Photo">&times;</button>`;
+
+                        div.innerHTML = `<img src="${src}" alt="Documentation">${delBtn}`;
+                        grid.appendChild(div);
+                    });
+                }
+            }
+
+            // 2. PDFs
+            const pdfSection = document.getElementById('pdfSection');
+            const pdfList = document.getElementById('pdfList');
+            pdfList.innerHTML = '';
+
+            if(item.pdfs && item.pdfs.length > 0) {
+                pdfSection.style.display = 'block';
+                item.pdfs.forEach((pdf, index) => {
+                    let delBtn = isAppLocked ? '' : `<button class="btn-pdf-action btn-delete-pdf" onclick="deletePdf('${id}', ${index})">Delete</button>`;
+                    
+                    let div = document.createElement('div');
+                    div.className = 'pdf-card';
+                    div.innerHTML = `
+                        <div class="pdf-info">
+                            <span class="pdf-icon">&#128196;</span>
+                            <span>${escapeHTML(pdf.name)}</span>
+                        </div>
+                        <div class="pdf-actions">
+                            <button class="btn-pdf-action btn-download-pdf" onclick="downloadPdf('${id}', ${index})">Download</button>
+                            ${delBtn}
+                        </div>
+                    `;
+                    pdfList.appendChild(div);
+                });
+            } else {
+                pdfSection.style.display = 'none';
+            }
+
+            document.getElementById('galleryModal').style.display = 'flex';
+        }
+
+        async function deletePhoto(e, activityId, photoIndex) {
+            e.stopPropagation(); 
+            if(confirm("Delete this photo? This cannot be undone.")) {
+                let item = activities.find(a => a.id == activityId);
+                if(item) {
+                    item.photos.splice(photoIndex, 1);
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'POST', body: JSON.stringify(item)
+                    });
+                    await fetchActivities();
+                    openGallery(activityId); 
+                }
+            }
+        }
+
+        async function deletePdf(activityId, pdfIndex) {
+            if(confirm("Delete this PDF?")) {
+                let item = activities.find(a => a.id == activityId);
+                if(item) {
+                    item.pdfs.splice(pdfIndex, 1);
+                    await fetch('/.netlify/functions/activities', {
+                        method: 'POST', body: JSON.stringify(item)
+                    });
+                    await fetchActivities();
+                    openGallery(activityId);
+                }
+            }
+        }
+
+        function downloadPdf(activityId, pdfIndex) {
+            let item = activities.find(a => a.id == activityId);
+            if(item && item.pdfs[pdfIndex]) {
+                const pdf = item.pdfs[pdfIndex];
+                window.open(pdf.url, '_blank');
+            }
+        }
+
+        // --- LIGHTBOX & DOWNLOAD LOGIC ---
+
+        function openLightbox(src) {
+            currentViewImg = src;
+            document.getElementById('lightboxImg').src = src;
+            document.getElementById('lightboxModal').style.display = 'flex';
+        }
+
+        function downloadSinglePhoto() {
+            if(!currentViewImg) return;
+            // Force download for CORS enabled images
+            fetch(currentViewImg)
+                .then(resp => resp.blob())
+                .then(blob => {
+                    saveAs(blob, "MDRRMO_Photo.jpg");
+                });
+        }
+
+        async function downloadAllPhotos() {
+            if(!currentGalleryId) return;
+            let item = activities.find(a => a.id == currentGalleryId);
+            if (typeof JSZip === 'undefined') { alert("JSZip library missing."); return; }
+
+            const zip = new JSZip();
+            const folder = zip.folder("documentation");
+
+            // Helper to fetch blob
+            const urlToPromise = (url) => {
+                return new Promise((resolve, reject) => {
+                    fetch(url).then(response => {
+                        if (response.status === 200) return response.blob();
+                        throw new Error(response.statusText);
+                    }).then(blob => resolve(blob)).catch(err => reject(err));
+                });
+            }
+
+            const notif = document.getElementById('notification');
+            notif.innerText = "Zipping files...";
+            notif.style.display = 'block';
+
+            let promises = [];
+
+            if(item.photos) {
+                item.photos.forEach((photoUrl, i) => {
+                    const filename = `photo_${i+1}.jpg`;
+                    promises.push(urlToPromise(photoUrl).then(blob => {
+                        folder.file(filename, blob);
+                    }));
+                });
+            }
+            if(item.pdfs) {
+                item.pdfs.forEach((pdf, i) => {
+                    promises.push(urlToPromise(pdf.url).then(blob => {
+                        folder.file(pdf.name, blob);
+                    }));
+                });
+            }
+
+            Promise.all(promises).then(() => {
+                zip.generateAsync({type:"blob"}).then((content) => {
+                    saveAs(content, `Activity_${item.title}_Docs.zip`);
+                    notif.style.display = 'none';
+                });
+            });
+        }
+
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        window.onclick = function(e) {
+            if(e.target.classList.contains('modal')) e.target.style.display = 'none';
+        }
+
+        init();
+    </script>
+</body>
+</html>
