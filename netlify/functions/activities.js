@@ -1,4 +1,4 @@
-const { Client } = require('pg');
+const client = new Client({ connectionString: process.env.NEON_DATABASE_URL });
 
 exports.handler = async (event, context) => {
     // 1. Connect to Neon Database
